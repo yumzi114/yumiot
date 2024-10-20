@@ -97,7 +97,6 @@ fn dht11_thread_fuction(dht11: &mut Dht11<PinDriver<AnyIOPin, InputOutput>>, tx:
             Err(e)=>
                 println!("{:?}",e)
         }
-        // println!("THREAD2");
         FreeRtos::delay_ms(2000);
     }
 }
@@ -105,7 +104,6 @@ fn dht11_thread_fuction(dht11: &mut Dht11<PinDriver<AnyIOPin, InputOutput>>, tx:
 
 fn mqtt_connect(_: &EspWifi) -> anyhow::Result<TcpStream> {
     let mut stream = TcpStream::connect(MQTT_ADDR)?;
-
     let mut conn = ConnectPacket::new("ESP");
     conn.set_clean_session(true);
     conn.set_user_name(Some(MQTT_ID.into()));
@@ -113,15 +111,11 @@ fn mqtt_connect(_: &EspWifi) -> anyhow::Result<TcpStream> {
     let mut buf = Vec::new();
     conn.encode(&mut buf)?;
     stream.write_all(&buf[..])?;
-
     let conn_ack = ConnackPacket::decode(&mut stream)?;
-
     if conn_ack.connect_return_code() != ConnectReturnCode::ConnectionAccepted {
         println!("MQTT failed to receive the connection accepted ack");
-        // bail!("MQTT failed to receive the connection accepted ack");
     }
     println!("MQTT connected");
-    // info!("MQTT connected");
 
     Ok(stream)
 }
@@ -130,20 +124,13 @@ fn mqtt_connect(_: &EspWifi) -> anyhow::Result<TcpStream> {
 fn mqtt_publish(
     _: &EspWifi,
     stream: &mut TcpStream,
-    // topic_name: &str,
     message: &str,
-    // qos: QoSWithPacketIdentifier,
 ) -> anyhow::Result<()> {
     let topic = unsafe { TopicName::new_unchecked(MQTT_TOPIC.to_string()) };
     let bytes = message.as_bytes();
-
     let publish_packet = PublishPacketRef::new(&topic, QoSWithPacketIdentifier::Level0, bytes);
-
     let mut buf = Vec::new();
     publish_packet.encode(&mut buf)?;
     stream.write_all(&buf[..])?;
-
-    // println!("MQTT published message {} to topic {}", "message", topic_name);
-
     Ok(())
 }
