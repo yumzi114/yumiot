@@ -5,7 +5,7 @@
 source /opt/esp-idf/export.sh
 . /opt/esp-idf/export.fish
 
-### use espflash idf
+### use espflash idf 
 . $HOME/esp/esp-idf/export.fish
 
 

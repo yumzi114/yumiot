@@ -62,7 +62,7 @@ fn main() -> anyhow::Result<()> {
     let temp_thread = std::thread::Builder::new()
         .stack_size(TEMP_STACK_SIZE)
         .spawn(move||dht11_thread_fuction(&mut dht11, tx));
-    FreeRtos::delay_ms(3000);
+    FreeRtos::delay_ms(4000);
     let mut mqtt_stream = mqtt_connect(&wifi_driver)?;
     loop {
         if let Ok(data)=rx.try_recv(){
