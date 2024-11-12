@@ -6,9 +6,10 @@ use esp_idf_svc::{sys as _, wifi::{ClientConfiguration, Configuration}};
 use dht11::Dht11;
 use crossbeam_channel::bounded;
 use esp_idf_hal::{
-    delay::{Ets, FreeRtos}, gpio::{AnyIOPin, AnyOutputPin, IOPin, InputOutput, PinDriver}, peripherals::Peripherals
+    delay::{Ets, FreeRtos}, gpio::{AnyIOPin, AnyOutputPin, IOPin, InputOutput, Pin, PinDriver}, peripherals::Peripherals, rmt::{config::TransmitConfig, FixedLengthSignal, PinState, Pulse, PulseTicks, TxRmtDriver, VariableLengthSignal}
 };
-
+use esp_idf_hal::rmt::*;
+use esp_idf_hal :: sys :: rmt_encoder_t;
 use esp_idf_svc::{
     wifi::EspWifi,
     nvs::EspDefaultNvsPartition,
@@ -16,10 +17,10 @@ use esp_idf_svc::{
 };
 use esp_println::println;
 use heapless::String;
-
 use mqtt::control::ConnectReturnCode;
 use mqtt::packet::{ConnackPacket, ConnectPacket, PublishPacketRef, QoSWithPacketIdentifier};
 use mqtt::{Decodable, Encodable, TopicName};
+
 
 static TEMP_STACK_SIZE:usize = 2000;
 const WIFI_SSID:&'static str=env!("WIFI_SSID");
@@ -30,15 +31,37 @@ const MQTT_IP:&'static str=env!("MQTT_IP");
 const MQTT_TOPIC:&'static str=env!("MQTT_TOPIC");
 const MQTT_ADDR:&'static str=env!("MQTT_ADDR");
 
+const addr_hex_code: u16 = 0xA90F;
+const cmd_hex_code: u16 = 0xA90F;
 
 
 fn main() -> anyhow::Result<()> {
     esp_idf_hal::sys::link_patches();
     let peripherals = Peripherals::take()?;
+    let ir_config = TransmitConfig::new().clock_divider(80);
+    let channel = peripherals.rmt.channel0;
+    let ir_pin = peripherals.pins.gpio4;
     let sys_loop = EspSystemEventLoop::take()?;
     let nvs = EspDefaultNvsPartition::take()?;
     let dht_pin = PinDriver::input_output_od(peripherals.pins.gpio5.downgrade())?;
     let (tx, rx)=bounded(1);
+
+    let mut ir_tx = TxRmtDriver::new(channel, ir_pin, &ir_config)?;
+    let ticks_hz = ir_tx.counter_clock()?;
+    let mut test = rmt_encoder_t::default();
+    
+    
+    let high = Pulse::new(PinState::High, PulseTicks::new(9000)?);
+    let low= Pulse::new(PinState::High, PulseTicks::new(4500)?);
+    let end_high = Pulse::new(PinState::High, PulseTicks::new(560)?);
+    let end_low= Pulse::new(PinState::Low, PulseTicks::new(0)?);
+
+    let sig1 = Pulse::new(PinState::High, PulseTicks::new(560)?);
+    let sig2 = Pulse::new(PinState::Low, PulseTicks::new(1690)?);
+    
+    let sig_1 = Pulse::new(PinState::High, PulseTicks::new(560)?);
+    let sig_2 = Pulse::new(PinState::Low, PulseTicks::new(0)?);
+
     let mut dht11 = Dht11::new(dht_pin);
     let mut wifi_driver = EspWifi::new(
         peripherals.modem,
@@ -62,6 +85,15 @@ fn main() -> anyhow::Result<()> {
     let temp_thread = std::thread::Builder::new()
         .stack_size(TEMP_STACK_SIZE)
         .spawn(move||dht11_thread_fuction(&mut dht11, tx));
+
+    let ir_thread = std::thread::Builder::new()
+        .stack_size(TEMP_STACK_SIZE)
+        .spawn(move||loop{
+            send_nec_command(&mut ir_tx, 0x6681, 0x7E81).unwrap();
+            FreeRtos::delay_ms(2000);
+            
+        });
+
     FreeRtos::delay_ms(4000);
     let mut mqtt_stream = mqtt_connect(&wifi_driver)?;
     loop {
@@ -134,3 +166,100 @@ fn mqtt_publish(
     stream.write_all(&buf[..])?;
     Ok(())
 }
+
+
+fn send_nec_command(
+    ir_tx: &mut TxRmtDriver,
+    address: u16,
+    command: u16,
+) -> anyhow::Result<()> {
+    // NEC 프로토콜의 타이밍 정의
+    let start_high = Pulse::new(PinState::High, PulseTicks::new(9000)?);
+    let start_low = Pulse::new(PinState::Low, PulseTicks::new(4500)?);
+    let bit_high = Pulse::new(PinState::High, PulseTicks::new(560)?);
+    let bit_low_0 = Pulse::new(PinState::Low, PulseTicks::new(560)?);
+    let bit_low_1 = Pulse::new(PinState::Low, PulseTicks::new(1690)?);
+    let end_high = Pulse::new(PinState::High, PulseTicks::new(560)?);
+
+    // NEC 프로토콜 신호 설정 (32비트: Address + Command)
+    let mut signal = FixedLengthSignal::<67>::new();
+    
+    // 시작 신호
+    signal.set(0, &(start_high, start_low))?;
+    
+    // 16비트 Address 신호 전송
+    for i in (0..16).rev() {
+        let bit = (address >> i) & 0x1;
+        if bit == 1 {
+            signal.set(i as usize + 1, &(bit_high, bit_low_1))?;
+        } else {
+            signal.set(i as usize + 1, &(bit_high, bit_low_0))?;
+        }
+    }
+
+    // 16비트 Command 신호 전송
+    for i in (0..16).rev() {
+        let bit = (command >> i) & 0x1;
+        if bit == 1 {
+            signal.set(i as usize + 17, &(bit_high, bit_low_1))?;
+        } else {
+            signal.set(i as usize + 17, &(bit_high, bit_low_0))?;
+        }
+    }
+    
+    // 끝 신호
+    signal.set(66, &(end_high, Pulse::default()))?;
+    
+    // 신호 전송
+    ir_tx.start_blocking(&signal)?;
+    
+    Ok(())
+}
+
+// fn send_nec_command(
+//     ir_tx: &mut TxRmtDriver,
+//     address: u16,
+//     command: u16,
+// ) -> anyhow::Result<()> {
+//     // NEC 프로토콜의 타이밍 정의
+//     let start_high = Pulse::new(PinState::High, PulseTicks::new(9000)?);
+//     let start_low = Pulse::new(PinState::Low, PulseTicks::new(4500)?);
+//     let bit_high = Pulse::new(PinState::High, PulseTicks::new(560)?);
+//     let bit_low_0 = Pulse::new(PinState::Low, PulseTicks::new(560)?);
+//     let bit_low_1 = Pulse::new(PinState::Low, PulseTicks::new(1690)?);
+//     let end_high = Pulse::new(PinState::High, PulseTicks::new(560)?);
+
+//     // VariableLengthSignal 사용으로 유연하게 신호 설정
+//     let mut signal = VariableLengthSignal::new();
+    
+//     // 시작 신호 추가
+//     signal.push(&[start_high, start_low])?;
+    
+//     // Address 비트 전송
+//     for i in (0..16).rev() {
+//         let bit = (address >> i) & 0x1;
+//         if bit == 1 {
+//             signal.push(&[bit_high, bit_low_1])?;
+//         } else {
+//             signal.push(&[bit_high, bit_low_0])?;
+//         }
+//     }
+
+//     // Command 비트 전송
+//     for i in (0..16).rev() {
+//         let bit = (command >> i) & 0x1;
+//         if bit == 1 {
+//             signal.push(&[bit_high, bit_low_1])?;
+//         } else {
+//             signal.push(&[bit_high, bit_low_0])?;
+//         }
+//     }
+    
+//     // 끝 신호 추가
+//     signal.push(&[end_high])?;
+    
+//     // 신호 전송
+//     ir_tx.start_blocking(&signal)?;
+    
+//     Ok(())
+// }
