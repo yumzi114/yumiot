@@ -51,16 +51,16 @@ fn main() -> anyhow::Result<()> {
     let mut test = rmt_encoder_t::default();
     
     
-    let high = Pulse::new(PinState::High, PulseTicks::new(9000)?);
-    let low= Pulse::new(PinState::High, PulseTicks::new(4500)?);
-    let end_high = Pulse::new(PinState::High, PulseTicks::new(560)?);
-    let end_low= Pulse::new(PinState::Low, PulseTicks::new(0)?);
+    // let high = Pulse::new(PinState::High, PulseTicks::new(9000)?);
+    // let low= Pulse::new(PinState::High, PulseTicks::new(4500)?);
+    // let end_high = Pulse::new(PinState::High, PulseTicks::new(560)?);
+    // let end_low= Pulse::new(PinState::Low, PulseTicks::new(0)?);
 
-    let sig1 = Pulse::new(PinState::High, PulseTicks::new(560)?);
-    let sig2 = Pulse::new(PinState::Low, PulseTicks::new(1690)?);
+    // let sig1 = Pulse::new(PinState::High, PulseTicks::new(560)?);
+    // let sig2 = Pulse::new(PinState::Low, PulseTicks::new(1690)?);
     
-    let sig_1 = Pulse::new(PinState::High, PulseTicks::new(560)?);
-    let sig_2 = Pulse::new(PinState::Low, PulseTicks::new(0)?);
+    // let sig_1 = Pulse::new(PinState::High, PulseTicks::new(560)?);
+    // let sig_2 = Pulse::new(PinState::Low, PulseTicks::new(0)?);
 
     let mut dht11 = Dht11::new(dht_pin);
     let mut wifi_driver = EspWifi::new(
@@ -106,6 +106,7 @@ fn main() -> anyhow::Result<()> {
                 &mut mqtt_stream,
                 message.as_str()
             )?;
+            
         }
         FreeRtos::delay_ms(1);
     }
